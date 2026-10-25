@@ -73,6 +73,14 @@ class LoRALinear(nn.Module):
         self.scale = alpha / rank
         self.lora_A = nn.Parameter(base.weight.new_empty(rank, base.in_features))
         self.lora_B = nn.Parameter(base.weight.new_zeros(base.out_features, rank))
+        # set A != 0, B = 0, so that initially LoRA does not change the pretrained model's output
+        # since BAx = 0
+        #
+        # since dL/dB = dL/dout * dout/dB = dL/dout * Ax, and
+        #       dL/dA = dL/dout * dout/dA = dL/dout * Bx,
+        # Thus, initially set A = random, B = 0,
+        # so that on the first step, B learns, but A doesn't.
+        # After B updates, both A and B can learn.
         nn.init.normal_(self.lora_A, std=0.02)
         self.base.requires_grad_(False)
 

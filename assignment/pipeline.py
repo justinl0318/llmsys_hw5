@@ -12,7 +12,23 @@ def clock_cycles(microbatches, stages):
     Zero microbatches yields nothing. Reject negative microbatches or stages < 1.
     """
     # BEGIN_STUDENT
-    raise NotImplementedError("Implement this assignment function")
+    if microbatches < 0 or stages < 1:
+        raise ValueError("microbatches < 0 or stages < 1")
+    
+    if microbatches == 0:
+        return
+    
+    # num of clock cycles = microbatches + stages - 1
+    for cycle in range(microbatches + stages - 1):
+        # wave_i has microbatch + stage = i
+        wave = []
+        for stage in range(stages):
+            microbatch = cycle - stage
+            if microbatch >= 0 and microbatch < microbatches:
+                wave.append((microbatch, stage))
+    
+        yield wave
+            
     # END_STUDENT
 
 
@@ -40,7 +56,26 @@ class Pipe(nn.Module):
 
     def forward(self, inputs):
         # BEGIN_STUDENT
-        raise NotImplementedError("Implement this assignment function")
+        microbatches = list(torch.split(inputs, self.split_size, dim=0))
+        for wave in clock_cycles(len(microbatches), len(self.stages)):
+            # run each microbatch on the stage's worker thread
+            for microbatch_idx, stage in wave:
+                microbatch = microbatches[microbatch_idx]
+                module = self.stages[stage]
+                device = self.devices[stage]
+                
+                def run_curr_stage(input=microbatch, module=module, device=device):
+                    return module(input.to(device))
+                
+                self.workers.submit(stage, run_curr_stage)
+                
+            # collect each microbatch output
+            for microbatch_idx, stage in wave:
+                microbatches[microbatch_idx] = self.workers.receive(stage)
+             
+        # last stage produces every microbatch's final output on its GPU
+        # => no extra transfer needed
+        return torch.cat(microbatches, dim=0) # concat back to a full batch
         # END_STUDENT
 
     def close(self):
